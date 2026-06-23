@@ -232,4 +232,5 @@ if __name__ == "__main__":
     print(f"📂 Database : {DB_PATH}")
     print(f"🔗 MCP URL  : http://0.0.0.0:{PORT}/sse")
     print("✅ Ready!\n")
-    mcp.run(transport="sse")  # ← KEY DIFFERENCE from local MCP
+    # mcp.run(transport="sse")  # ← KEY DIFFERENCE from local MCP
+    app = mcp.asgi_app(transport="sse")
