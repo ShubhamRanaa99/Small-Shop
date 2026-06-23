@@ -226,11 +226,11 @@ def delete_product(name: str) -> str:
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────────
-
+# app = mcp.sse_app()
 if __name__ == "__main__":
     print(f"🌐 Shop Inventory Web MCP Server starting on port {PORT}...")
     print(f"📂 Database : {DB_PATH}")
     print(f"🔗 MCP URL  : http://0.0.0.0:{PORT}/sse")
     print("✅ Ready!\n")
-    mcp.run(transport="sse")  # ← KEY DIFFERENCE from local MCP
-    # app = mcp.asgi_app(transport="sse")
+    mcp.run(transport="sse")  # ← KEY DIFFERENCE from local MCP   
+    # mcp.run()
