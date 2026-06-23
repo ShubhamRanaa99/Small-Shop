@@ -1,0 +1,14 @@
+# Render deployment configuration
+# This file tells Render exactly how to run your Web MCP server
+
+services:
+  - type: web
+    name: shop-inventory-mcp
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        value: 8000
+    # Free tier settings
+    plan: free
