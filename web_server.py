@@ -19,7 +19,7 @@ PORT = int(os.environ.get("PORT", 8000))
 # ⚠️ Move this to Render Environment Variables for security!
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://postgres.zkgqbcdlxrwdioiwddvi:YOzTBDk5pQpCuXhM@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+    "postgresql://postgres.zkgqbcdlxrwdioiwddvi:YOzTBDk5pQpCuXhM@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres"
 )
 
 mcp = FastMCP(
