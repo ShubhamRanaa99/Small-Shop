@@ -1,29 +1,30 @@
 """
 🛒 Shop Inventory — Web MCP Server
 ------------------------------------
-Same shop inventory as before, but now runs as a WEB SERVER.
-Claude connects to it via a public URL (hosted on Render).
+Runs as a WEB SERVER with PostgreSQL (Supabase) for persistent storage.
 
 Transport: SSE (Server Sent Events) over HTTP
-URL:       https://your-app.onrender.com/mcp
+URL:       https://your-app.onrender.com/sse
 """
 
-import sqlite3
 import os
+import psycopg2
+import psycopg2.extras
 from mcp.server.fastmcp import FastMCP
 
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
-# Read port from environment (Render sets this automatically)
 PORT = int(os.environ.get("PORT", 8000))
 
-# Database path
-DB_PATH = os.path.join(os.path.dirname(__file__), "inventory.db")
+# ⚠️ Move this to Render Environment Variables for security!
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://postgres:YOzTBDk5pQpCuXhM@db.zkgqbcdlxrwdioiwddvi.supabase.co:5432/postgres"
+)
 
-# Create MCP server with SSE transport for web
 mcp = FastMCP(
     "Shop Inventory Manager",
-    host="0.0.0.0",   # listen on all interfaces (required for Render)
+    host="0.0.0.0",
     port=PORT,
 )
 
@@ -31,16 +32,17 @@ mcp = FastMCP(
 # ─── Database Helpers ─────────────────────────────────────────────────────────
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.cursor_factory = psycopg2.extras.RealDictCursor  # dict-style rows
     return conn
 
 
 def init_db():
     conn = get_connection()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS products (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              SERIAL PRIMARY KEY,
             name            TEXT    NOT NULL UNIQUE,
             quantity        REAL    NOT NULL DEFAULT 0,
             unit            TEXT    NOT NULL DEFAULT 'kg',
@@ -48,6 +50,7 @@ def init_db():
         )
     """)
     conn.commit()
+    cur.close()
     conn.close()
 
 
@@ -69,14 +72,16 @@ def add_product(name: str, quantity: float, unit: str = "kg", low_stock_alert: f
     """
     try:
         conn = get_connection()
-        conn.execute(
-            "INSERT INTO products (name, quantity, unit, low_stock_alert) VALUES (?, ?, ?, ?)",
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO products (name, quantity, unit, low_stock_alert) VALUES (%s, %s, %s, %s)",
             (name.strip(), quantity, unit, low_stock_alert)
         )
         conn.commit()
+        cur.close()
         conn.close()
         return f"✅ Added '{name}' — {quantity} {unit} (alert at {low_stock_alert} {unit})"
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
         return f"❌ Product '{name}' already exists. Use update_stock to change quantity."
 
 
@@ -90,14 +95,17 @@ def update_stock(name: str, quantity: float) -> str:
         quantity: New quantity value
     """
     conn = get_connection()
-    cursor = conn.execute(
-        "UPDATE products SET quantity = ? WHERE name = ?",
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE products SET quantity = %s WHERE name = %s",
         (quantity, name.strip())
     )
     conn.commit()
+    rowcount = cur.rowcount
+    cur.close()
     conn.close()
 
-    if cursor.rowcount == 0:
+    if rowcount == 0:
         return f"❌ Product '{name}' not found. Use add_product first."
     return f"✅ Updated '{name}' stock to {quantity}"
 
@@ -111,9 +119,10 @@ def get_stock(name: str) -> str:
         name: Product name to check
     """
     conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM products WHERE name = ?", (name.strip(),)
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM products WHERE name = %s", (name.strip(),))
+    row = cur.fetchone()
+    cur.close()
     conn.close()
 
     if not row:
@@ -134,7 +143,10 @@ def list_all_products() -> str:
     List all products in the inventory with their current stock.
     """
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM products ORDER BY name").fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM products ORDER BY name")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     if not rows:
@@ -155,9 +167,10 @@ def list_low_stock() -> str:
     Show all products that are low in stock (below their alert level).
     """
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM products WHERE quantity <= low_stock_alert ORDER BY quantity"
-    ).fetchall()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM products WHERE quantity <= low_stock_alert ORDER BY quantity")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     if not rows:
@@ -182,20 +195,22 @@ def add_stock(name: str, amount: float) -> str:
         amount: How much to ADD to current stock
     """
     conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM products WHERE name = ?", (name.strip(),)
-    ).fetchone()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM products WHERE name = %s", (name.strip(),))
+    row = cur.fetchone()
 
     if not row:
+        cur.close()
         conn.close()
         return f"❌ Product '{name}' not found."
 
     new_qty = row["quantity"] + amount
-    conn.execute(
-        "UPDATE products SET quantity = ? WHERE name = ?",
+    cur.execute(
+        "UPDATE products SET quantity = %s WHERE name = %s",
         (new_qty, name.strip())
     )
     conn.commit()
+    cur.close()
     conn.close()
 
     return (
@@ -214,23 +229,22 @@ def delete_product(name: str) -> str:
         name: Product name to delete
     """
     conn = get_connection()
-    cursor = conn.execute(
-        "DELETE FROM products WHERE name = ?", (name.strip(),)
-    )
+    cur = conn.cursor()
+    cur.execute("DELETE FROM products WHERE name = %s", (name.strip(),))
     conn.commit()
+    rowcount = cur.rowcount
+    cur.close()
     conn.close()
 
-    if cursor.rowcount == 0:
+    if rowcount == 0:
         return f"❌ Product '{name}' not found."
     return f"🗑️ Deleted '{name}' from inventory."
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────────
-# app = mcp.sse_app()
+
 if __name__ == "__main__":
     print(f"🌐 Shop Inventory Web MCP Server starting on port {PORT}...")
-    print(f"📂 Database : {DB_PATH}")
     print(f"🔗 MCP URL  : http://0.0.0.0:{PORT}/sse")
     print("✅ Ready!\n")
-    mcp.run(transport="sse")  # ← KEY DIFFERENCE from local MCP   
-    # mcp.run()
+    mcp.run(transport="sse")
